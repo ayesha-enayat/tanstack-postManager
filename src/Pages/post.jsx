@@ -1,94 +1,72 @@
-import { useState, useEffect } from "react";
-import Swal from "sweetalert2"; // Import SweetAlert2
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Swal from "sweetalert2";
 
+// Fetch Posts
 const getAllPostFromAPI = async () => {
-  try {
-    const response = await fetch("https://dummyjson.com/posts");
-    if (!response.ok) {
-      throw new Error("Failed to fetch posts");
-    }
-    const data = await response.json();
-    return data.posts;
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
+  const response = await fetch("https://dummyjson.com/posts");
+  if (!response.ok) throw new Error("Failed to fetch posts");
+  const data = await response.json();
+  return data.posts;
 };
 
 const Post = () => {
-  const [posts, setPosts] = useState([]);
+  const queryClient = useQueryClient();
+
+  // Fetch posts using useQuery
+  const { data: posts = [], isLoading, isError } = useQuery({
+    queryKey: ["posts"],
+    queryFn: getAllPostFromAPI,
+  });
+
+  // Mutations for CRUD operations
+  const deletePostMutation = useMutation({
+    mutationFn: (id) =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve(id), 500); // Simulating API request delay
+      }),
+    onSuccess: (id) => {
+      queryClient.setQueryData(["posts"], (oldPosts) =>
+        oldPosts.filter((post) => post.id !== id)
+      );
+      Swal.fire("Deleted!", "Your post has been deleted.", "success");
+    },
+  });
+
+  const createPostMutation = useMutation({
+    mutationFn: (newPost) =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve(newPost), 500);
+      }),
+    onSuccess: (newPost) => {
+      queryClient.setQueryData(["posts"], (oldPosts) => [...oldPosts, newPost]);
+      Swal.fire("Post Created!", "Your new post has been added.", "success");
+    },
+  });
+
+  const updatePostMutation = useMutation({
+    mutationFn: ({ id, newTitle, newDescription }) =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ id, newTitle, newDescription }), 500);
+      }),
+    onSuccess: ({ id, newTitle, newDescription }) => {
+      queryClient.setQueryData(["posts"], (oldPosts) =>
+        oldPosts.map((post) =>
+          post.id === id ? { ...post, title: newTitle, body: newDescription } : post
+        )
+      );
+      Swal.fire("Updated!", "Your post has been updated successfully.", "success");
+    },
+  });
+
   const [editingPost, setEditingPost] = useState(null);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [postTitle, setPostTitle] = useState("");
   const [postDescription, setPostDescription] = useState("");
 
-  useEffect(() => {
-    const fetchPosts = async () => {
-      const data = await getAllPostFromAPI();
-      setPosts(data);
-    };
-    fetchPosts();
-  }, []);
-
-  const handleDelete = (id) => {
-    Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to undo this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
-      confirmButtonText: "Yes, delete it!",
-    }).then((result) => {
-      if (result.isConfirmed) {
-        setPosts(posts.filter((post) => post.id !== id));
-        Swal.fire("Deleted!", "Your post has been deleted.", "success");
-      }
-    });
-  };
-
-  const handleEdit = (id, currentTitle, currentDescription) => {
-    setEditingPost(id);
-    setNewTitle(currentTitle);
-    setNewDescription(currentDescription);
-  };
-
-  const handleUpdate = (id) => {
-    const updatedPosts = posts.map((post) =>
-      post.id === id ? { ...post, title: newTitle, body: newDescription } : post
-    );
-    setPosts(updatedPosts);
-    setEditingPost(null);
-    Swal.fire("Updated!", "Your post has been updated successfully.", "success");
-  };
-
-  const handleCreatePost = () => {
-    if (!postTitle || !postDescription) {
-      Swal.fire({
-        icon: "error",
-        title: "Oops...",
-        text: "Title and Description are required!",
-      });
-      return;
-    }
-
-    const newPost = {
-      id: posts.length + 101, // Unique ID for new posts
-      title: postTitle,
-      body: postDescription,
-    };
-
-    setPosts([...posts, newPost]);
-    setPostTitle("");
-    setPostDescription("");
-
-    Swal.fire({
-      icon: "success",
-      title: "Post Created!",
-      text: "Your new post has been added successfully.",
-    });
-  };
+  if (isLoading) return <div className="text-center text-2xl">Loading posts...</div>;
+  if (isError) return <div className="text-center text-2xl text-red-500">Error fetching posts.</div>;
 
   return (
     <>
@@ -111,7 +89,19 @@ const Post = () => {
           rows="3"
         />
         <button
-          onClick={handleCreatePost}
+          onClick={() => {
+            if (!postTitle || !postDescription) {
+              Swal.fire({ icon: "error", title: "Oops...", text: "Title and Description are required!" });
+              return;
+            }
+            createPostMutation.mutate({
+              id: posts.length + 101, 
+              title: postTitle,
+              body: postDescription,
+            });
+            setPostTitle("");
+            setPostDescription("");
+          }}
           className="rounded-lg px-4 py-2 bg-blue-600 hover:bg-blue-700 transition text-white text-xl w-full"
         >
           Create Post
@@ -122,10 +112,7 @@ const Post = () => {
       <div className="mt-5 max-w-3xl mx-auto">
         <h2 className="text-3xl font-bold text-center text-gray-800">All Posts</h2>
         {posts.map(({ title, id, body }) => (
-          <div
-            className="bg-white shadow-lg p-4 m-2 border rounded-lg transition hover:shadow-xl"
-            key={id}
-          >
+          <div className="bg-white shadow-lg p-4 m-2 border rounded-lg transition hover:shadow-xl" key={id}>
             <div className="font-bold text-xl text-blue-700">Post #{id}</div>
 
             {editingPost === id ? (
@@ -153,21 +140,28 @@ const Post = () => {
             <div className="mt-3 flex gap-2">
               {editingPost === id ? (
                 <button
-                  onClick={() => handleUpdate(id)}
+                  onClick={() => {
+                    updatePostMutation.mutate({ id, newTitle, newDescription });
+                    setEditingPost(null);
+                  }}
                   className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition"
                 >
                   Save
                 </button>
               ) : (
                 <button
-                  onClick={() => handleEdit(id, title, body)}
+                  onClick={() => {
+                    setEditingPost(id);
+                    setNewTitle(title);
+                    setNewDescription(body);
+                  }}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition"
                 >
                   Edit
                 </button>
               )}
               <button
-                onClick={() => handleDelete(id)}
+                onClick={() => deletePostMutation.mutate(id)}
                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition"
               >
                 Delete
